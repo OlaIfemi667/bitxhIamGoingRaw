@@ -3,44 +3,15 @@
 #include <ctype.h>
 #include <errno.h>
 
-
+#include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
 
-//-----------------------terminal-----------------------------
 
+//-----define---------------
 
-struct termios orig_termios;
-
-void die(const char *s) {
-  perror(s);
-  exit(1);
-}
-
-
-void disableRawMode() {
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
-}
-
-
-void enableRawMode() {
-  if (tcgetattr(STDIN_FILENO, &orig_termios) == -1) die("tcgetattr");
-  atexit(disableRawMode);
-  struct termios raw = orig_termios;
-  raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-  raw.c_oflag &= ~(OPOST);
-  raw.c_cflag |= (CS8);
-  raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
-  raw.c_cc[VMIN] = 0;
-  raw.c_cc[VTIME] = 1;
-  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
-}
-
-
-
-
-
+#define CTRL_KEY(k) ( (k) & 0x1f)
 
 //-----------------------entity-------------------------------
 typedef int8_t i8;
@@ -69,7 +40,7 @@ void printString(String myString)
   {
     printf("%c", *(myString.start + i));
   }
-  printf("\n");
+  printf("\r\n");
 }
 
 
@@ -101,6 +72,81 @@ void displayEntity(Entity myEntity)
    printf("RIP\n");
 }
 
+void killEntity(Entity *anEntity)
+{
+  anEntity->isAlive = false;
+}
+
+
+
+//-----------------------terminal-----------------------------
+
+
+struct termios orig_termios;
+
+void die(const char *s) {
+  write(STDOUT_FILENO, "\x1b[2J", 4);
+  write(STDOUT_FILENO, "\x1b[H", 3);
+
+  perror(s);
+  exit(1);
+}
+
+
+void disableRawMode() {
+  tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+}
+
+
+void enableRawMode() {
+  if (tcgetattr(STDIN_FILENO, &orig_termios) == -1) die("tcgetattr");
+  atexit(disableRawMode);
+  struct termios raw = orig_termios;
+  raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+  raw.c_oflag &= ~(OPOST);
+  raw.c_cflag |= (CS8);
+  raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+  raw.c_cc[VMIN] = 0;
+  raw.c_cc[VTIME] = 1;
+  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
+}
+
+
+
+char editorReadKey() {
+  int nread;
+  char c;
+  while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
+    if (nread == -1 && errno != EAGAIN) die("read");
+  }
+  return c;
+}
+
+/*** output ***/
+void editorRefreshScreen() {
+  write(STDOUT_FILENO, "\x1b[2J", 4);
+  write(STDOUT_FILENO, "\x1b[H", 3);
+}
+
+
+/*** input ***/
+void editorProcessKeypress(Entity *anEntity) {
+  char c = editorReadKey();
+  switch (c) {
+    case CTRL_KEY('q'):
+      write(STDOUT_FILENO, "\x1b[2J", 4);
+      write(STDOUT_FILENO, "\x1b[H", 3);
+
+      exit(0);
+      break;
+    case 'k':
+      killEntity(anEntity);
+      write(STDOUT_FILENO, "\x1b[2J", 4);
+      write(STDOUT_FILENO, "\x1b[H", 3);
+
+      displayEntity(*anEntity);
+  }
+}
 
 
 
@@ -121,35 +167,17 @@ int main(void)
     .isAlive = 1
   };
 
-  char c;
+
+  //----------Entrer en Raw Mode
+  enableRawMode();
+  editorRefreshScreen();
 
   displayEntity(theEntity);
 
-
-  //----------Entrer en Raw ModeenableRawMode();
   while (1) {
-    char c = '\0';
-    if (read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN) die("read");
-    if (iscntrl(c)) {
-      printf("%d\r\n", c);
-    } else {
-      printf("%d ('%c')\r\n", c, c);
-    }
-    if (c == 'q') break;
+    editorProcessKeypress(&theEntity);
   }
-
-  enableRawMode();
-  while (1) {
-    char c = '\0';
-    if (read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN) die("read");
-    if (iscntrl(c)) {
-      printf("%d\r\n", c);
-    } else {
-      printf("%d ('%c')\r\n", c, c);
-    }
-    if (c == 'q') break;
-  }
-
-
+  
+  
   return 0;
 }
